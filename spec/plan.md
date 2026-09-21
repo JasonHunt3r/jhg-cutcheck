@@ -20,10 +20,22 @@ that means is Jason's call.
 
 ## Why it exists
 
-CAMotics does this job today and is an Intel binary. When Rosetta goes, it
-stops running, and the capability leaves the bench with it. This rebuilds
-the part of CAMotics actually in use — simulating the tool's path through
-the medium, and showing the result — natively on Apple silicon.
+CutSim is built for the ClaudeCAM pipeline: ClaudeCAM generates the NC file,
+CutSim shows what that file actually does.
+
+Path previsualisation is a well-established category — CAMotics, the
+simulators inside most CAM packages, and others all show a toolpath cutting
+virtual stock. This is another program doing that task, written for this
+bench and this pipeline.
+
+**Provenance: no CAMotics source has been examined, and none is used.** The
+implementation came from the NC files and from the standard approach to the
+problem — stock as a grid of surface heights, the cutter swept through it as
+a cylinder — which is common to the category.
+
+CAMotics sets the schedule rather than the design: it is what the shop uses
+for previsualisation today, it is an Intel binary, and when Rosetta goes it
+stops running.
 
 The failure it is measured against is the Panel C run of March 2026: a file
 whose preview overlay looked correct while the G-code drove 400mm across the
@@ -195,7 +207,7 @@ Jason's hand disagree, the part is right and the tool has a bug.
 
 | Risk | Mitigation |
 |---|---|
-| Rosetta removal ends CAMotics before the replacement is trusted | Capture reference meshes from CAMotics while it still runs; they outlive it |
+| Rosetta removal ends the shop's current previsualisation before CutSim is trusted | Capture reference meshes from the existing tool while it still runs; they outlive it and make a useful cross-check |
 | Offset geometry: comparing against design intent means reimplementing the generator's riskiest math | Deferred with the verification work; treat as a known hazard when it lands |
 | Triangle load with a fine patch over a large base | Skip the base where the patch covers it, if it bites |
 | Window-management work against undocumented AppKit behaviour | Scope limited to snapping and persistence; no docking tree |

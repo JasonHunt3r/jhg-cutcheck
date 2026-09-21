@@ -13,8 +13,8 @@ It reconstructs the cut from the NC file alone, removes virtual material with
 the tool's swept volume, and reports what the part actually becomes — plus a
 mesh so the result can be inspected by eye.
 
-It exists to take over the job CAMotics has been doing on this bench, and to add
-the checking CAMotics never did. See **Relationship to CAMotics** below.
+It is built for the ClaudeCAM pipeline: ClaudeCAM generates, CutSim shows what
+was generated. See **Prior art** below.
 
 **The failure it exists to catch:** a preview overlay is a drawing of intent; an
 NC file is an instruction to a machine. Anything happening between them — arc
@@ -42,22 +42,26 @@ the cut."
 
 ---
 
-## Relationship to CAMotics
+## Prior art
 
-CAMotics is the functional reference, not an anti-goal. The project began as
-"why don't we rebuild that in Swift," and that framing still holds.
+Path previsualisation is a well-established category — CAMotics, the
+simulators built into most CAM packages, and others all show a toolpath
+cutting virtual stock. CutSim is another program doing that task, written
+for this pipeline.
 
-What is being carried over: **simulating the tool's path through the medium**
-and showing the result. That is the part of CAMotics actually used here, and
-the part whose loss would be felt.
+**Provenance: no CAMotics source has been examined, and none is used.** The
+implementation was derived from the NC files themselves and from the
+standard approach to this problem — stock as a grid of surface heights, the
+cutter swept through it as a cylinder. That technique is common to the whole
+category and predates any particular implementation of it.
 
-What is not being carried over: the breadth. Other dialects, other machine
-classes, lathes, 5-axis, the plugin surface. Narrowing scope is not the same
-as rejecting the model — cutcheck rebuilds the part that earns its keep.
+CAMotics matters here for one practical reason: it is what the shop uses for
+previsualisation today, and it is an Intel binary. When Rosetta goes it stops
+running. That sets the schedule, not the design.
 
-What CAMotics never did, and this adds: automated checking against design
-intent and machine limits, with a machine-readable report another program can
-gate on.
+What CutSim adds beyond showing the cut is knowledge of this pipeline — it
+reads ClaudeCAM's own section comments and header parameters, so it opens a
+job already configured and already knowing what its passes are called.
 
 ---
 
@@ -145,7 +149,7 @@ anticipated. The simulator surfaces those.
 A native 3D viewer, OpenSCAD/SCAD integration, the SwiftUI app, extra dialects
 and extra machines are deferred past Phase 4 — **deferred in time, not in
 rank.** The viewer is a primary deliverable, not polish: it is what replaces
-what CAMotics showed, and it is the surface Jason uses to talk to Claude about
+previsualisation, and it is the surface Jason uses to talk to Claude about
 a cut. It is sequenced late only because the checker is falsifiable sooner.
 
 Deferring the *viewer* does not defer *inspection* — Phase 2's mesh opens in
