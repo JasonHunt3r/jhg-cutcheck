@@ -136,6 +136,10 @@ Full plan: **`spec/plan.md`**. That document is the reference for what is
 built, what is next, and what gate it must pass. Read it before proposing
 work.
 
+`spec/macos_panels_guide.md` records how the window system was built —
+floating panels, snapping, persistence, activation, menu conventions. It is
+written to be reusable on other projects, not just this one.
+
 `spec/plan_phases_1_4.md` (v0.3) is historical: it describes the
 verification design, which is parked. Do not plan from it.
 
