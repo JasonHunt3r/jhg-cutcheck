@@ -36,11 +36,39 @@ final class CutDocument {
 
     private var keyframes: [(index: Int, heights: [Float])] = []
     private var radius: Double = 3.175
-    private var resolution: Double = 0.6
+
+    /// Grid cell size. Every cut wall is quantised to this, so it is the
+    /// single biggest lever on how smooth the result looks.
+    enum Quality: Double, CaseIterable, Identifiable {
+        case coarse = 0.6
+        case fine = 0.3
+        case finer = 0.2
+        case finest = 0.12
+
+        public var id: Double { rawValue }
+        var label: String {
+            switch self {
+            case .coarse: return "Coarse"
+            case .fine:   return "Fine"
+            case .finer:  return "Finer"
+            case .finest: return "Finest"
+            }
+        }
+        var detail: String { String(format: "%.2fmm", rawValue) }
+    }
+
+    var quality: Quality = .fine {
+        didSet { if quality != oldValue { reload() } }
+    }
+    private var resolution: Double { quality.rawValue }
+
+    /// Keyframes are full copies of the grid, so their count has to fall as
+    /// the grid gets finer or a fine setting would eat gigabytes.
+    private static let keyframeBudgetBytes = 192 << 20
 
     // MARK: - loading
 
-    func open(url: URL) {
+    func open(url: URL, restoringMove: Int? = nil) {
         busy = true
         defer { busy = false }
         do {
@@ -76,12 +104,21 @@ final class CutDocument {
             }
 
             buildKeyframes()
-            currentMove = prog.moves.count - 1
-            seek(to: currentMove)
-            status = "\(url.lastPathComponent) — \(prog.moves.count) moves, \(landmarks.count) sections"
+            let target = min(restoringMove ?? (prog.moves.count - 1), prog.moves.count - 1)
+            currentMove = target
+            seek(to: target)
+            status = "\(url.lastPathComponent) — \(prog.moves.count) moves, "
+                + "\(landmarks.count) sections, \(f.nx)x\(f.ny) @ \(quality.detail)"
         } catch {
             status = "Could not read \(url.lastPathComponent)"
         }
+    }
+
+    /// Re-run at the current quality, holding position in the program.
+    private func reload() {
+        guard let u = url else { return }
+        let keepMove = currentMove
+        open(url: u, restoringMove: keepMove)
     }
 
     private func buildKeyframes() {
@@ -89,7 +126,10 @@ final class CutDocument {
         keyframes.removeAll()
         let n = program.moves.count
         guard n > 0 else { return }
-        let stride = max(1, n / 24)   // ~24 checkpoints across the program
+
+        let gridBytes = f.nx * f.ny * MemoryLayout<Float>.size
+        let affordable = max(2, min(24, Self.keyframeBudgetBytes / max(gridBytes, 1)))
+        let stride = max(1, n / affordable)
 
         // Reset, then walk forward recording snapshots.
         let fresh = HeightField(xmin: f.xmin, xmax: f.xmax, ymin: f.ymin, ymax: f.ymax,

@@ -66,10 +66,19 @@ struct ContentView: View {
                     .frame(width: 110, alignment: .trailing)
             }
 
-            HStack {
+            HStack(spacing: 12) {
                 Text(document.currentSectionName)
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Picker("Detail", selection: $document.quality) {
+                    ForEach(CutDocument.Quality.allCases) { q in
+                        Text("\(q.label)  \(q.detail)").tag(q)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .frame(width: 150)
+                .disabled(document.busy)
                 Text(document.status)
                     .font(.caption).foregroundStyle(.secondary)
             }

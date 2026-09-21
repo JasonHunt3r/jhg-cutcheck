@@ -36,6 +36,7 @@ struct CutView: NSViewRepresentable {
         guard let r = Renderer(view: view) else { return view }
         context.coordinator.renderer = r
         view.delegate = r
+        view.sampleCount = 4          // MSAA: stops triangle edges shimmering
         view.isPaused = false
         view.enableSetNeedsDisplay = false
         view.preferredFramesPerSecond = 60

@@ -39,8 +39,18 @@ vertex VOut surfaceVertex(uint vid [[vertex_id]],
                           constant Uniforms &u [[buffer(0)]],
                           texture2d<float> heights [[texture(0)]])
 {
-    uint ix = vid % u.nx;
-    uint iy = vid / u.nx;
+    // Triangles are derived from the vertex id rather than an index buffer.
+    // At a 0.12mm grid the indices alone would be ~286MB; this way there is
+    // no buffer at all.
+    uint quad = vid / 6u;
+    uint corner = vid % 6u;
+    uint qx = quad % (u.nx - 1u);
+    uint qy = quad / (u.nx - 1u);
+
+    const uint2 offs[6] = { uint2(0,0), uint2(1,0), uint2(1,1),
+                            uint2(0,0), uint2(1,1), uint2(0,1) };
+    uint ix = qx + offs[corner].x;
+    uint iy = qy + offs[corner].y;
     float z = sampleH(heights, ix, iy, u.nx, u.ny);
 
     float3 p = float3(u.xmin + float(ix) * u.res,

@@ -27,8 +27,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var depthState: MTLDepthStencilState!
 
     private var heightTexture: MTLTexture?
-    private var indexBuffer: MTLBuffer?
-    private var indexCount = 0
+    private var vertexCount = 0
 
     // Camera
     var azimuth: Float = -0.6
@@ -51,6 +50,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         view.device = dev
         view.colorPixelFormat = .bgra8Unorm
         view.depthStencilPixelFormat = .depth32Float
+        view.sampleCount = 4
         view.clearColor = MTLClearColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1)
 
         let lib: MTLLibrary
@@ -67,6 +67,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             d.fragmentFunction = lib.makeFunction(name: fragFn)
             d.colorAttachments[0].pixelFormat = view.colorPixelFormat
             d.depthAttachmentPixelFormat = view.depthStencilPixelFormat
+            d.rasterSampleCount = view.sampleCount
             return try? dev.makeRenderPipelineState(descriptor: d)
         }
         guard let sp = pipeline("surfaceVertex", "surfaceFragment"),
@@ -91,21 +92,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         td.usage = [.shaderRead]
         heightTexture = device.makeTexture(descriptor: td)
 
-        var idx = [UInt32]()
-        idx.reserveCapacity((field.nx - 1) * (field.ny - 1) * 6)
-        for iy in 0..<(field.ny - 1) {
-            for ix in 0..<(field.nx - 1) {
-                let a = UInt32(iy * field.nx + ix)
-                let b = a + 1
-                let c = UInt32((iy + 1) * field.nx + ix) + 1
-                let d = UInt32((iy + 1) * field.nx + ix)
-                idx.append(contentsOf: [a, b, c, a, c, d])
-            }
-        }
-        indexCount = idx.count
-        indexBuffer = idx.withUnsafeBytes {
-            device.makeBuffer(bytes: $0.baseAddress!, length: $0.count, options: .storageModeShared)
-        }
+        vertexCount = max(0, (field.nx - 1) * (field.ny - 1) * 6)
 
         // Frame the part.
         let w = Float(field.xmax - field.xmin), d = Float(field.ymax - field.ymin)
@@ -128,7 +115,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
-        guard let tex = heightTexture, let ib = indexBuffer, indexCount > 0,
+        guard let tex = heightTexture, vertexCount > 0,
               let rpd = view.currentRenderPassDescriptor,
               let drawable = view.currentDrawable,
               let cb = queue.makeCommandBuffer(),
@@ -159,8 +146,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         enc.setRenderPipelineState(surfacePipeline)
         enc.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
         enc.setVertexTexture(tex, index: 0)
-        enc.drawIndexedPrimitives(type: .triangle, indexCount: indexCount,
-                                  indexType: .uint32, indexBuffer: ib, indexBufferOffset: 0)
+        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
 
         enc.endEncoding()
         cb.present(drawable)
