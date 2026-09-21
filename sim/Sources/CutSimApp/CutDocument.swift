@@ -338,15 +338,27 @@ final class CutDocument {
         detailCell = 0
     }
 
-    /// Shown under the window title. The containing folder, because the
-    /// archive has several NC files sharing a basename in different
-    /// directories and that is the thing worth telling apart at a glance.
+    /// Shown under the window title.
+    ///
+    /// Leads with the app name on purpose, against the usual Mac rule that
+    /// the menu bar identifies the app: when CutSim is in the background
+    /// the menu bar belongs to something else, and a bare filename does not
+    /// say whose window this is.
+    ///
+    /// Then the containing folder, because the archive has several NC files
+    /// sharing a basename across directories, and that is the thing worth
+    /// telling apart at a glance.
     var windowSubtitle: String {
-        guard let url else { return "" }
+        guard let url else { return Self.appName }
         let folder = url.deletingLastPathComponent().lastPathComponent
-        guard !folder.isEmpty else { return "" }
-        return "\(folder) — \(moveCount) moves"
+        var parts = [Self.appName]
+        if !folder.isEmpty { parts.append(folder) }
+        parts.append("\(moveCount) moves")
+        return parts.joined(separator: " · ")
     }
+
+    /// One place to change when the name is settled.
+    static let appName = "CutSim"
 
     var currentSectionName: String {
         guard currentMove < program.moves.count,
