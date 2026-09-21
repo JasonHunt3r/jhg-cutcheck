@@ -77,7 +77,9 @@ struct CutView: NSViewRepresentable {
     final class Coordinator {
         var renderer: Renderer?
         var configuredFor: ObjectIdentifier?
+        var patchFor: ObjectIdentifier?
         var lastGeneration: UInt64 = .max
+        var lastResetRequest = 0
     }
 
     func makeNSView(context: Context) -> OrbitMTKView {
@@ -121,19 +123,34 @@ struct CutView: NSViewRepresentable {
     }
 
     func updateNSView(_ view: OrbitMTKView, context: Context) {
-        guard let r = context.coordinator.renderer,
-              let field = document.displayField else { return }
+        guard let r = context.coordinator.renderer, let field = document.field else { return }
+        let c = context.coordinator
+
         let id = ObjectIdentifier(field)
-        if context.coordinator.configuredFor != id {
-            // Only the whole block frames the camera; a detail patch must
-            // appear exactly where you were already looking.
-            r.configure(field: field, resetCamera: context.coordinator.configuredFor == nil)
-            context.coordinator.configuredFor = id
-            context.coordinator.lastGeneration = document.generation
-        } else if context.coordinator.lastGeneration != document.generation {
+        if c.configuredFor != id {
+            r.configure(field: field, resetCamera: c.configuredFor == nil)
+            c.configuredFor = id
+            c.lastGeneration = document.generation
+            c.patchFor = nil
+            r.setPatch(nil)
+        } else if c.lastGeneration != document.generation {
             r.upload(field: field)
-            context.coordinator.lastGeneration = document.generation
+            c.lastGeneration = document.generation
         }
+
+        // The patch is a separate layer drawn over the base, so the base
+        // keeps covering everything the patch does not.
+        let patchID = document.detailField.map(ObjectIdentifier.init)
+        if c.patchFor != patchID {
+            r.setPatch(document.detailField)
+            c.patchFor = patchID
+        }
+
+        if c.lastResetRequest != document.resetViewRequest {
+            c.lastResetRequest = document.resetViewRequest
+            r.resetTopView(field: field)
+        }
+
         r.wireframe = document.wireframe
     }
 }

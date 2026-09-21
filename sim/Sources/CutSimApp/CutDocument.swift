@@ -265,9 +265,9 @@ final class CutDocument {
     /// Roughly how many cells to put across the visible region.
     static let detailCellsAcross = 2600.0
 
-    /// The field the renderer should draw: the detail patch when one is
-    /// live, otherwise the whole block.
-    var displayField: HeightField? { detailField ?? field }
+    /// Bumped to ask the view to return to a top-down framing.
+    private(set) var resetViewRequest = 0
+    func resetView() { resetViewRequest += 1 }
 
     /// Called when the camera stops moving. `halfSize` is half the visible
     /// width in mm.

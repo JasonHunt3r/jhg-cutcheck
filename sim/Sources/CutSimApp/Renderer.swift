@@ -26,8 +26,16 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var basePipeline: MTLRenderPipelineState!
     private var depthState: MTLDepthStencilState!
 
-    private var heightTexture: MTLTexture?
-    private var vertexCount = 0
+    /// One height grid ready to draw. The base covers the whole block; a
+    /// patch covers just what you are looking at, at finer detail.
+    private struct Layer {
+        var texture: MTLTexture
+        var nx: Int, ny: Int
+        var xmin: Float, ymin: Float, res: Float
+        var vertexCount: Int
+    }
+    private var base: Layer?
+    private var patch: Layer?
 
     // Camera
     var azimuth: Float = -0.6
@@ -36,9 +44,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     var target = SIMD3<Float>(0, 0, 0)
     var wireframe = false
 
-    private var grid = (nx: 0, ny: 0)
-    private var bounds = (xmin: Float(0), ymin: Float(0), res: Float(1),
-                          top: Float(0), bottom: Float(-1))
+    private var depthRange = (top: Float(0), bottom: Float(-1))
+    private var lastAspect: Float = 1.6
 
     init?(view: MTKView) {
         guard let dev = view.device ?? MTLCreateSystemDefaultDevice(),
@@ -87,43 +94,65 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var settleCounter = 0
     private var lastCam = SIMD3<Float>(0, 0, 0)
 
-    /// Called when the field changes: rebuild the texture.
-    /// `resetCamera` is false for detail patches, which must not move the view.
-    func configure(field: HeightField, resetCamera: Bool = true) {
-        grid = (field.nx, field.ny)
-        bounds = (Float(field.xmin), Float(field.ymin), Float(field.resolution),
-                  Float(field.top), Float(field.bottom))
-
+    private func makeLayer(_ field: HeightField) -> Layer? {
         let td = MTLTextureDescriptor.texture2DDescriptor(
             pixelFormat: .r32Float, width: field.nx, height: field.ny, mipmapped: false)
         td.usage = [.shaderRead]
-        heightTexture = device.makeTexture(descriptor: td)
+        guard let tex = device.makeTexture(descriptor: td) else { return nil }
+        var layer = Layer(texture: tex, nx: field.nx, ny: field.ny,
+                          xmin: Float(field.xmin), ymin: Float(field.ymin),
+                          res: Float(field.resolution),
+                          vertexCount: max(0, (field.nx - 1) * (field.ny - 1) * 6))
+        write(field, into: &layer)
+        return layer
+    }
 
-        vertexCount = max(0, (field.nx - 1) * (field.ny - 1) * 6)
-
-        if resetCamera {
-            let w = Float(field.xmax - field.xmin), d = Float(field.ymax - field.ymin)
-            target = SIMD3(Float(field.xmin) + w / 2, Float(field.ymin) + d / 2,
-                           Float(field.bottom) / 2)
-            distance = max(w, d) * 1.5
+    private func write(_ field: HeightField, into layer: inout Layer) {
+        field.h.withUnsafeBytes { raw in
+            layer.texture.replace(region: MTLRegionMake2D(0, 0, field.nx, field.ny),
+                                  mipmapLevel: 0,
+                                  withBytes: raw.baseAddress!,
+                                  bytesPerRow: field.nx * MemoryLayout<Float>.size)
         }
-        upload(field: field)
+    }
+
+    /// The whole block. `resetCamera` frames it.
+    func configure(field: HeightField, resetCamera: Bool = true) {
+        depthRange = (Float(field.top), Float(field.bottom))
+        base = makeLayer(field)
+        if resetCamera { frame(field) }
     }
 
     func upload(field: HeightField) {
-        guard let tex = heightTexture, field.nx == grid.nx, field.ny == grid.ny else { return }
-        field.h.withUnsafeBytes { raw in
-            tex.replace(region: MTLRegionMake2D(0, 0, field.nx, field.ny),
-                        mipmapLevel: 0,
-                        withBytes: raw.baseAddress!,
-                        bytesPerRow: field.nx * MemoryLayout<Float>.size)
-        }
+        guard var b = base, field.nx == b.nx, field.ny == b.ny else { return }
+        write(field, into: &b)
+        base = b
+    }
+
+    /// The fine patch drawn over the base. Passing nil clears it.
+    func setPatch(_ field: HeightField?) {
+        guard let field else { patch = nil; return }
+        patch = makeLayer(field)
+    }
+
+    func frame(_ field: HeightField) {
+        let w = Float(field.xmax - field.xmin), d = Float(field.ymax - field.ymin)
+        target = SIMD3(Float(field.xmin) + w / 2, Float(field.ymin) + d / 2,
+                       Float(field.bottom) / 2)
+        distance = max(w, d) * 1.5
+    }
+
+    /// Straight down, part filling the view.
+    func resetTopView(field: HeightField?) {
+        azimuth = -.pi / 2
+        elevation = .pi / 2 - 0.004
+        if let field { frame(field) }
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
-        guard let tex = heightTexture, vertexCount > 0,
+        guard let base,
               let rpd = view.currentRenderPassDescriptor,
               let drawable = view.currentDrawable,
               let cb = queue.makeCommandBuffer(),
@@ -131,6 +160,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         let size = view.drawableSize
         let aspect = Float(max(size.width, 1) / max(size.height, 1))
+        lastAspect = aspect
 
         // Ask for a finer patch once the camera holds still.
         let cam = SIMD3(azimuth, elevation, distance) + target
@@ -141,10 +171,10 @@ final class Renderer: NSObject, MTKViewDelegate {
             settleCounter += 1
             if settleCounter == 12 {   // ~0.2s at 60fps
                 settleCounter = -1
-                let halfWidth = Double(self.distance) * Double(tan(Float.pi / 8)) * 1.1
+                let half = visibleHalfSpan()
                 let tx = Double(target.x), ty = Double(target.y)
                 DispatchQueue.main.async { [weak self] in
-                    self?.onCameraSettled?(tx, ty, halfWidth)
+                    self?.onCameraSettled?(tx, ty, half)
                 }
             }
         }
@@ -152,31 +182,65 @@ final class Renderer: NSObject, MTKViewDelegate {
         let eye = target + SIMD3(distance * cos(elevation) * cos(azimuth),
                                  distance * cos(elevation) * sin(azimuth),
                                  distance * sin(elevation))
-        let mvp = perspective(fov: .pi / 4, aspect: aspect, near: 1, far: distance * 4)
-            * lookAt(eye: eye, center: target, up: SIMD3(0, 0, 1))
+        // Straight down would make the usual up vector parallel to the view.
+        let up: SIMD3<Float> = abs(elevation) > 1.45
+            ? SIMD3(-cos(azimuth), -sin(azimuth), 0)
+            : SIMD3(0, 0, 1)
+        let mvp = perspective(fov: .pi / 4, aspect: aspect, near: 0.2, far: distance * 6)
+            * lookAt(eye: eye, center: target, up: up)
 
-        var u = Uniforms(mvp: mvp, xmin: bounds.xmin, ymin: bounds.ymin, res: bounds.res,
-                         nx: UInt32(grid.nx), ny: UInt32(grid.ny),
-                         top: bounds.top, bottom: bounds.bottom,
-                         shade: wireframe ? 0 : 1)
+        func uniforms(for l: Layer) -> Uniforms {
+            Uniforms(mvp: mvp, xmin: l.xmin, ymin: l.ymin, res: l.res,
+                     nx: UInt32(l.nx), ny: UInt32(l.ny),
+                     top: depthRange.top, bottom: depthRange.bottom,
+                     shade: wireframe ? 0 : 1)
+        }
 
         enc.setDepthStencilState(depthState)
         enc.setTriangleFillMode(wireframe ? .lines : .fill)
         enc.setCullMode(.none)
 
+        var baseU = uniforms(for: base)
         enc.setRenderPipelineState(basePipeline)
-        enc.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
+        enc.setVertexBytes(&baseU, length: MemoryLayout<Uniforms>.stride, index: 0)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
 
         enc.setRenderPipelineState(surfacePipeline)
-        enc.setVertexBytes(&u, length: MemoryLayout<Uniforms>.stride, index: 0)
-        enc.setVertexTexture(tex, index: 0)
-        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: vertexCount)
+        enc.setVertexBytes(&baseU, length: MemoryLayout<Uniforms>.stride, index: 0)
+        enc.setVertexTexture(base.texture, index: 0)
+        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: base.vertexCount)
+
+        // The patch covers only part of the view; the base stays underneath so
+        // anything outside it degrades to coarse rather than disappearing.
+        if let patch, patch.vertexCount > 0 {
+            var patchU = uniforms(for: patch)
+            enc.setDepthBias(-2.0, slopeScale: -1.0, clamp: -0.01)
+            enc.setVertexBytes(&patchU, length: MemoryLayout<Uniforms>.stride, index: 0)
+            enc.setVertexTexture(patch.texture, index: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: patch.vertexCount)
+            enc.setDepthBias(0, slopeScale: 0, clamp: 0)
+        }
 
         enc.endEncoding()
         cb.present(drawable)
         cb.commit()
     }
+
+    /// Half-width of what the camera can see on the part, in mm.
+    ///
+    /// Vertical field of view alone is not enough: the window is wider than
+    /// it is tall, and a tilted camera sees a much longer stretch of the
+    /// part than a perpendicular one. Undersizing this is what truncated
+    /// the patch.
+    private func visibleHalfSpan() -> Double {
+        let halfV = distance * tan(Float.pi / 8)
+        let halfH = halfV * lastAspect
+        var half = max(halfH, halfV)
+        let tilt = max(sin(abs(elevation)), 0.25)   // grazing views see further
+        half /= tilt
+        return Double(half) * 1.3                   // margin for orbiting
+    }
+
 }
 
 // MARK: - matrices

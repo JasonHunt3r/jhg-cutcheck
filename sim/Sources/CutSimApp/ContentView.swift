@@ -133,6 +133,19 @@ private struct InspectorPanel: View {
                             }
                         }
 
+                        InspectorGroup("View") {
+                            Button {
+                                document.resetView()
+                            } label: {
+                                Label("Reset to Top", systemImage: "arrow.counterclockwise")
+                                    .font(.system(size: 11))
+                            }
+                            .controlSize(.small)
+                            Text("drag spins · ⌥drag slides · scroll zooms")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        }
+
                         InspectorGroup("Display") {
                             Toggle("Wireframe", isOn: $document.wireframe)
                             Toggle("Move list", isOn: $document.showMoveList)
