@@ -5,6 +5,7 @@ struct ContentView: View {
     @Bindable var document: CutDocument
 
     var body: some View {
+        HStack(spacing: 0) {
         VStack(spacing: 0) {
             ZStack {
                 Color(red: 0.09, green: 0.09, blue: 0.11)
@@ -25,6 +26,11 @@ struct ContentView: View {
                     .padding(.vertical, 10)
                     .background(.bar)
             }
+        }
+        if document.field != nil && document.showMoveList {
+            Divider()
+            MoveListView(document: document)
+        }
         }
         .frame(minWidth: 820, minHeight: 620)
         .navigationTitle(document.url?.lastPathComponent ?? "cutsim")

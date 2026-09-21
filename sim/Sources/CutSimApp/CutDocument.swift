@@ -185,6 +185,35 @@ final class CutDocument {
 
     func togglePlay() { isPlaying ? stop() : play() }
 
+    var showMoveList = true
+    private var lastListFollow = Date.distantPast
+
+    /// Throttle the move list's auto-scroll; playback outruns any animation.
+    func shouldFollowList() -> Bool {
+        let now = Date()
+        guard now.timeIntervalSince(lastListFollow) > 0.1 else { return false }
+        lastListFollow = now
+        return true
+    }
+
+    /// Step by `delta` moves, clamped. Used by the arrow keys.
+    func step(_ delta: Int) {
+        stop()
+        seek(to: max(0, min(currentMove + delta, moveCount - 1)))
+    }
+
+    /// Jump to the start of the previous or next section.
+    func stepSection(_ dir: Int) {
+        stop()
+        guard !landmarks.isEmpty else { return }
+        let starts = landmarks.map(\.firstMove)
+        if dir > 0 {
+            seek(to: starts.first(where: { $0 > currentMove }) ?? (moveCount - 1))
+        } else {
+            seek(to: starts.last(where: { $0 < currentMove }) ?? 0)
+        }
+    }
+
     func play() {
         guard !program.moves.isEmpty else { return }
         if currentMove >= program.moves.count - 1 { seek(to: 0) }

@@ -7,7 +7,32 @@ final class OrbitMTKView: MTKView {
     var onDrag: ((CGFloat, CGFloat) -> Void)?
     var onScroll: ((CGFloat) -> Void)?
 
+    var onStep: ((Int) -> Void)?
+    var onSection: ((Int) -> Void)?
+
     override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.makeFirstResponder(self)
+    }
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // Shift steps by 10, Option by 100.
+        let mag = event.modifierFlags.contains(.option) ? 100
+                : event.modifierFlags.contains(.shift) ? 10 : 1
+        switch event.keyCode {
+        case 123: onStep?(-mag)      // left
+        case 124: onStep?(mag)       // right
+        case 125: onSection?(-1)     // down
+        case 126: onSection?(1)      // up
+        default: super.keyDown(with: event)
+        }
+    }
 
     var onPan: ((CGFloat, CGFloat) -> Void)?
 
@@ -68,6 +93,12 @@ struct CutView: NSViewRepresentable {
             r.target += up * Float(dy) * scale
         }
         let doc = document
+        view.onStep = { d in
+            MainActor.assumeIsolated { doc.step(d) }
+        }
+        view.onSection = { d in
+            MainActor.assumeIsolated { doc.stepSection(d) }
+        }
         r.onCameraSettled = { cx, cy, half in
             MainActor.assumeIsolated { doc.refineDetail(centerX: cx, centerY: cy, halfSize: half) }
         }

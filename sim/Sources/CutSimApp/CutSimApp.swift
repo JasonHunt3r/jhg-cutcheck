@@ -19,6 +19,10 @@ struct CutSimApp: App {
                     get: { document.wireframe },
                     set: { document.wireframe = $0 }))
                     .keyboardShortcut("w", modifiers: [.command, .shift])
+                Toggle("Move List", isOn: Binding(
+                    get: { document.showMoveList },
+                    set: { document.showMoveList = $0 }))
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
             }
         }
     }
