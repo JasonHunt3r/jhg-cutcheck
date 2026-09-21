@@ -71,6 +71,8 @@ public enum NCParser {
         var unitScale = 1.0
         var seenUnknown = Set<String>()
         var currentSection: Int? = nil
+        var bannerPending = false
+        var pendingTitle: (String, Int)? = nil
 
         var lineNo = 0
         text.enumerateLines { rawLine, _ in
@@ -89,12 +91,36 @@ public enum NCParser {
                                                  lastMove: prog.moves.count,
                                                  depths: []))
                     currentSection = prog.sections.count - 1
-                } else if comment.hasPrefix("---"), comment.contains("Z=") {
+                    bannerPending = false
+                    pendingTitle = nil
+                } else if isBanner(comment) {
+                    // A heading only counts when it sits BETWEEN two rules.
+                    // Committing on the opening rule alone would turn every
+                    // header key/value line into a section.
+                    if let t = pendingTitle {
+                        addSection(&prog, t.0, t.1, &currentSection)
+                        pendingTitle = nil
+                    }
+                    bannerPending = true
+                } else if comment.contains("Z="), currentSection != nil,
+                          comment.lowercased().contains("pass")
+                            || comment.hasPrefix("---") {
+                    // Depth markers, either "; --- Z=-1.5 ---" or the older
+                    // "; rough pass 3/11  Z=-4.5mm".
+                    pendingTitle = nil
                     if let r = comment.range(of: "Z="),
                        let v = Program.leadingNumber(String(comment[r.upperBound...])),
-                       let s = currentSection, !prog.sections[s].depths.contains(v) {
-                        prog.sections[s].depths.append(v)
+                       let sIdx = currentSection, !prog.sections[sIdx].depths.contains(v) {
+                        prog.sections[sIdx].depths.append(v)
                     }
+                } else if let title = bannerTitle(comment) {
+                    // ; === H1  centre=[...] === -- a heading in one line
+                    addSection(&prog, title, lineNo, &currentSection)
+                    bannerPending = false
+                    pendingTitle = nil
+                } else if bannerPending, !comment.isEmpty {
+                    pendingTitle = (comment, lineNo)
+                    bannerPending = false
                 } else if let colon = comment.firstIndex(of: ":") {
                     let k = String(comment[..<colon]).trimmingCharacters(in: .whitespaces)
                     let v = String(comment[comment.index(after: colon)...])
@@ -102,6 +128,9 @@ public enum NCParser {
                     if !k.isEmpty && !v.isEmpty && !k.contains(" ") {
                         prog.header[k] = v
                     }
+                    pendingTitle = nil
+                } else {
+                    pendingTitle = nil
                 }
             }
 
@@ -188,6 +217,32 @@ public enum NCParser {
         }
 
         return prog
+    }
+
+    // MARK: - headings
+
+    /// A rule made only of '=' or '-', e.g. "; ============".
+    static func isBanner(_ c: String) -> Bool {
+        guard c.count >= 6 else { return false }
+        return c.allSatisfy { $0 == "=" || $0 == "-" }
+    }
+
+    /// "=== Title ===" -> "Title"; nil if there is no text between the rules.
+    static func bannerTitle(_ c: String) -> String? {
+        guard c.hasPrefix("===") || c.hasPrefix("---") else { return nil }
+        let core = c.trimmingCharacters(in: CharacterSet(charactersIn: "=- "))
+        return core.isEmpty ? nil : core
+    }
+
+    static func addSection(_ prog: inout Program, _ raw: String, _ lineNo: Int,
+                           _ current: inout Int?) {
+        let name = String(raw.prefix(80)).trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { return }
+        prog.sections.append(Section(name: name, lineNo: lineNo,
+                                     firstMove: prog.moves.count,
+                                     lastMove: prog.moves.count,
+                                     depths: []))
+        current = prog.sections.count - 1
     }
 
     // MARK: - scanning

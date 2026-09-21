@@ -99,10 +99,13 @@ final class CutDocument {
             self.field = f
             self.applied = -1
 
+            // A heading printed before the first motion line is file
+            // metadata (title block, PARAMETERS, MACHINE SETUP). Anything
+            // after it is somewhere you can stand, even if the heading
+            // itself spans no moves.
+            let firstLine = prog.moves.first?.lineNo ?? 0
             landmarks = prog.sections.enumerated().compactMap { i, s in
-                // Sections with no motion (PARAMETERS, MACHINE SETUP) are not
-                // places you can stand.
-                guard s.lastMove > s.firstMove else { return nil }
+                guard s.lastMove > s.firstMove || s.lineNo > firstLine else { return nil }
                 return Landmark(id: i, name: s.name, firstMove: s.firstMove)
             }
 

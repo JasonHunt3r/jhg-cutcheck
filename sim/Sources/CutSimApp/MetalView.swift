@@ -37,11 +37,26 @@ final class OrbitMTKView: MTKView {
     var onPan: ((CGFloat, CGFloat) -> Void)?
 
     override func mouseDragged(with event: NSEvent) {
-        if event.modifierFlags.contains(.shift) {
+        // Option or Shift slides the view; a plain drag spins it.
+        if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.shift) {
             onPan?(event.deltaX, event.deltaY)
         } else {
             onDrag?(event.deltaX, event.deltaY)
         }
+    }
+
+    /// Cursor feedback so it is obvious which mode a drag will be.
+    override func flagsChanged(with event: NSEvent) {
+        if event.modifierFlags.contains(.option) || event.modifierFlags.contains(.shift) {
+            NSCursor.openHand.set()
+        } else {
+            NSCursor.arrow.set()
+        }
+        super.flagsChanged(with: event)
+    }
+    override func mouseExited(with event: NSEvent) {
+        NSCursor.arrow.set()
+        super.mouseExited(with: event)
     }
     override func rightMouseDragged(with event: NSEvent) {
         onPan?(event.deltaX, event.deltaY)
