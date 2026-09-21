@@ -16,6 +16,7 @@ import os
 import struct
 import sys
 import time
+import zlib
 
 import numpy as np
 
@@ -180,6 +181,57 @@ class Stock:
         return len(T)
 
 
+def _write_png(path, rgb):
+    """Minimal 8-bit RGB PNG writer, so a preview needs no image library."""
+    h, w, _ = rgb.shape
+    raw = b"".join(b"\x00" + rgb[y].tobytes() for y in range(h))
+
+    def chunk(tag, data):
+        body = struct.pack(">I", len(data)) + tag + data
+        return body + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+    with open(path, "wb") as fh:
+        fh.write(b"\x89PNG\r\n\x1a\n")
+        fh.write(chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)))
+        fh.write(chunk(b"IDAT", zlib.compress(raw, 6)))
+        fh.write(chunk(b"IEND", b""))
+
+
+def _block_min(a, f):
+    """Downsample by taking the minimum of each f x f block.
+
+    Minimum rather than mean on purpose: a cut one cell wide is exactly
+    what the preview exists to show, and averaging would wash it out.
+    """
+    ny, nx = a.shape
+    a = a[: ny // f * f, : nx // f * f]
+    return a.reshape(a.shape[0] // f, f, a.shape[1] // f, f).min(axis=(1, 3))
+
+
+def write_preview(stock, path, max_px=1600):
+    """Top-down depth map of the remaining stock.
+
+    Pale is untouched surface, darker is deeper, near-black is cut clean
+    through. +Y is up, matching how the part sits on the bed.
+    """
+    h = stock.h
+    f = max(1, int(math.ceil(max(h.shape) / max_px)))
+    if f > 1:
+        h = _block_min(h, f)
+
+    depth = stock.top - stock.bottom
+    norm = np.clip((h - stock.bottom) / depth, 0.0, 1.0)
+
+    img = np.empty(h.shape + (3,), dtype=np.uint8)
+    img[..., 0] = (40 + 200 * norm).astype(np.uint8)
+    img[..., 1] = (30 + 195 * norm).astype(np.uint8)
+    img[..., 2] = (25 + 175 * norm).astype(np.uint8)
+    img[h <= stock.bottom + 1e-6] = (20, 20, 28)
+
+    _write_png(path, np.ascontiguousarray(img[::-1]))
+    return img.shape[1], img.shape[0], f
+
+
 def simulate(prog, stock, radius, max_sag=0.01, max_dz=0.2, progress=True):
     """Push every move through the stock, in emission order."""
     moves = prog.moves
@@ -231,6 +283,12 @@ def main(argv=None):
     ap.add_argument("--resolution", type=float, default=0.5,
                     help="grid cell size in mm (default 0.5)")
     ap.add_argument("-o", "--out", default=None, help="output STL path")
+    ap.add_argument("--preview", nargs="?", const=True, default=None,
+                    metavar="PATH",
+                    help="also write a top-down depth-map PNG "
+                         "(defaults to the STL name with .png)")
+    ap.add_argument("--no-stl", action="store_true",
+                    help="skip the STL and write only the preview")
     args = ap.parse_args(argv)
 
     try:
@@ -274,9 +332,20 @@ def main(argv=None):
           + ("  (cut through)" if lowest <= -t + 1e-6 else ""))
     print(f"sim       {segs} segments in {elapsed:.1f}s")
 
-    ntris = stock.write_stl(out)
-    print(f"wrote     {out}  ({ntris} triangles, "
-          f"{os.path.getsize(out) / 1e6:.1f} MB)")
+    if not args.no_stl:
+        ntris = stock.write_stl(out)
+        print(f"wrote     {out}  ({ntris} triangles, "
+              f"{os.path.getsize(out) / 1e6:.1f} MB)")
+
+    if args.preview is not None:
+        png = args.preview if isinstance(args.preview, str) else (
+            os.path.splitext(out)[0] + ".png"
+        )
+        w_px, h_px, f = write_preview(stock, png)
+        note = f", {f}x downsampled" if f > 1 else ""
+        print(f"preview   {png}  ({w_px}x{h_px}px{note}, "
+              f"{os.path.getsize(png) / 1e3:.0f} KB)")
+
     return 0
 
 
