@@ -94,12 +94,21 @@ struct InspectorPanel: View {
                             .pickerStyle(.menu)
                             .disabled(document.busy)
 
-                            if document.detailCell > 0 {
-                                Label(String(format: "zoom detail %.3gmm", document.detailCell),
-                                      systemImage: "sparkle.magnifyingglass")
-                                    .font(.system(size: 10))
-                                    .foregroundStyle(.tint)
+                            // Always present, never conditional: appearing
+                            // and disappearing shoved everything below it up
+                            // and down as the camera settled.
+                            Label {
+                                Text(document.detailCell > 0
+                                     ? String(format: "zoom detail %.3gmm", document.detailCell)
+                                     : "zoom detail — base grid")
+                                    .lineLimit(1)
+                            } icon: {
+                                Image(systemName: "sparkle.magnifyingglass")
                             }
+                            .font(.system(size: 10))
+                            .foregroundStyle(document.detailCell > 0 ? AnyShapeStyle(.tint)
+                                                                     : AnyShapeStyle(.tertiary))
+                            .frame(height: 14, alignment: .leading)
                         }
 
                         InspectorGroup("View") {
