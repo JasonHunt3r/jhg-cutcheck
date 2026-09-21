@@ -35,6 +35,8 @@ final class CutDocument {
     var currentMove: Int = 0
 
     private var keyframes: [(index: Int, heights: [Float])] = []
+    /// Last move index actually cut into `field`; -1 means untouched stock.
+    private var applied = -1
     private var radius: Double = 3.175
 
     /// Grid cell size. Every cut wall is quantised to this, so it is the
@@ -95,6 +97,7 @@ final class CutDocument {
                                 ymin: loY - margin, ymax: hiY + margin,
                                 top: 0, bottom: -thickness, resolution: resolution)
             self.field = f
+            self.applied = -1
 
             landmarks = prog.sections.enumerated().compactMap { i, s in
                 // Sections with no motion (PARAMETERS, MACHINE SETUP) are not
@@ -135,6 +138,7 @@ final class CutDocument {
         let fresh = HeightField(xmin: f.xmin, xmax: f.xmax, ymin: f.ymin, ymax: f.ymax,
                                 top: f.top, bottom: f.bottom, resolution: f.resolution)
         keyframes.append((index: -1, heights: fresh.h))
+        applied = -1
         var i = 0
         while i < n {
             let upto = min(i + stride - 1, n - 1)
@@ -151,18 +155,156 @@ final class CutDocument {
         let target = max(-1, min(move, program.moves.count - 1))
         currentMove = max(0, target)
 
-        var base = keyframes.first!
-        for k in keyframes where k.index <= target { base = k }
-        f.replace(heights: base.heights)
-        if base.index < target {
+        invalidateDetail()
+        if target > applied {
+            // Moving forward: just keep cutting. No rewind needed.
             Simulator.run(program: program, into: f, radius: radius,
-                          from: base.index + 1, through: target)
+                          from: applied + 1, through: target)
+        } else if target < applied {
+            var base = keyframes.first!
+            for k in keyframes where k.index <= target { base = k }
+            f.replace(heights: base.heights)
+            if base.index < target {
+                Simulator.run(program: program, into: f, radius: radius,
+                              from: base.index + 1, through: target)
+            }
         }
+        applied = target
         generation &+= 1
     }
 
     /// Bumped whenever the height data changes, so the view knows to re-upload.
     private(set) var generation: UInt64 = 0
+
+    // MARK: - playback
+
+    private(set) var isPlaying = false
+    /// Moves per second.
+    var playSpeed: Double = 600
+    private var playTask: Task<Void, Never>?
+
+    func togglePlay() { isPlaying ? stop() : play() }
+
+    func play() {
+        guard !program.moves.isEmpty else { return }
+        if currentMove >= program.moves.count - 1 { seek(to: 0) }
+        isPlaying = true
+        playTask?.cancel()
+        playTask = Task { [weak self] in
+            var carry = 0.0
+            let tick = 1.0 / 60.0
+            while !Task.isCancelled {
+                guard let self, self.isPlaying else { return }
+                carry += self.playSpeed * tick
+                let step = Int(carry)
+                if step > 0 {
+                    carry -= Double(step)
+                    let next = self.currentMove + step
+                    if next >= self.moveCount - 1 {
+                        self.seek(to: self.moveCount - 1)
+                        self.stop()
+                        return
+                    }
+                    self.seek(to: next)
+                }
+                try? await Task.sleep(nanoseconds: UInt64(tick * 1_000_000_000))
+            }
+        }
+    }
+
+    func stop() {
+        isPlaying = false
+        playTask?.cancel()
+        playTask = nil
+    }
+
+    // MARK: - detail on demand
+
+    /// A small patch of stock re-simulated at far higher resolution than the
+    /// whole block could afford. A uniform 0.01mm grid over a 430mm panel
+    /// would be 1.7 billion cells and exceed Metal's texture limits; 0.01mm
+    /// over the 30mm you are actually looking at is 9 million.
+    private(set) var detailField: HeightField?
+    private(set) var detailCell: Double = 0
+    private var detailTask: Task<Void, Never>?
+
+    /// Finest cell we will ever compute, in mm.
+    static let finestCell = 0.01
+    /// Roughly how many cells to put across the visible region.
+    static let detailCellsAcross = 2600.0
+
+    /// The field the renderer should draw: the detail patch when one is
+    /// live, otherwise the whole block.
+    var displayField: HeightField? { detailField ?? field }
+
+    /// Called when the camera stops moving. `halfSize` is half the visible
+    /// width in mm.
+    func refineDetail(centerX: Double, centerY: Double, halfSize: Double) {
+        guard let base = field else { return }
+
+        let target = max(Self.finestCell,
+                         (halfSize * 2) / Self.detailCellsAcross)
+
+        // Zoomed out far enough that the base grid is already as good: drop
+        // any patch and show the whole block.
+        if target >= base.resolution * 0.9 || halfSize <= 0 {
+            detailTask?.cancel()
+            if detailField != nil {
+                detailField = nil
+                detailCell = 0
+                generation &+= 1
+            }
+            return
+        }
+
+        // Skip if the live patch already covers this view at this detail.
+        if let d = detailField,
+           abs(d.resolution - target) / target < 0.25,
+           centerX - halfSize >= d.xmin, centerX + halfSize <= d.xmax,
+           centerY - halfSize >= d.ymin, centerY + halfSize <= d.ymax {
+            return
+        }
+
+        let pad = halfSize * 0.25
+        let xmin = max(base.xmin, centerX - halfSize - pad)
+        let xmax = min(base.xmax, centerX + halfSize + pad)
+        let ymin = max(base.ymin, centerY - halfSize - pad)
+        let ymax = min(base.ymax, centerY + halfSize + pad)
+        guard xmax > xmin, ymax > ymin else { return }
+
+        let prog = program
+        let r = radius
+        let upto = currentMove
+        let top = base.top, bottom = base.bottom
+
+        detailTask?.cancel()
+        detailTask = Task { [weak self] in
+            // Only the height array crosses the actor boundary; the field
+            // itself is a class and is rebuilt on this side.
+            let heights = await Task.detached(priority: .userInitiated) { () -> [Float] in
+                let f = HeightField(xmin: xmin, xmax: xmax, ymin: ymin, ymax: ymax,
+                                    top: top, bottom: bottom, resolution: target)
+                Simulator.run(program: prog, into: f, radius: r,
+                              maxSag: min(0.01, target), from: 0, through: upto)
+                return f.h
+            }.value
+            if Task.isCancelled { return }
+            let patch = HeightField(xmin: xmin, xmax: xmax, ymin: ymin, ymax: ymax,
+                                    top: top, bottom: bottom, resolution: target)
+            patch.replace(heights: heights)
+            guard let self, !Task.isCancelled else { return }
+            self.detailField = patch
+            self.detailCell = target
+            self.generation &+= 1
+        }
+    }
+
+    /// Detail patches are only valid for one moment in the program.
+    private func invalidateDetail() {
+        detailTask?.cancel()
+        detailField = nil
+        detailCell = 0
+    }
 
     var currentSectionName: String {
         guard currentMove < program.moves.count,

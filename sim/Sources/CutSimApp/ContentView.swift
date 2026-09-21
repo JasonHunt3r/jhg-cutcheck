@@ -54,6 +54,15 @@ struct ContentView: View {
             }
 
             HStack(spacing: 12) {
+                Button {
+                    document.togglePlay()
+                } label: {
+                    Image(systemName: document.isPlaying ? "pause.fill" : "play.fill")
+                        .frame(width: 16)
+                }
+                .keyboardShortcut(.space, modifiers: [])
+                .help(document.isPlaying ? "Pause" : "Play")
+
                 Slider(
                     value: Binding(
                         get: { Double(document.currentMove) },
@@ -64,6 +73,24 @@ struct ContentView: View {
                 Text("\(document.currentMove) / \(document.moveCount - 1)")
                     .font(.system(.caption, design: .monospaced))
                     .frame(width: 110, alignment: .trailing)
+            }
+
+            HStack(spacing: 8) {
+                Image(systemName: "tortoise.fill")
+                    .font(.caption2).foregroundStyle(.secondary)
+                // Log scale: most of the useful range is at the slow end.
+                Slider(value: Binding(
+                    get: { log10(document.playSpeed) },
+                    set: { document.playSpeed = pow(10, $0) }
+                ), in: log10(20.0)...log10(20000.0))
+                .frame(width: 180)
+                Image(systemName: "hare.fill")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Text("\(Int(document.playSpeed)) moves/s")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 110, alignment: .leading)
+                Spacer()
             }
 
             HStack(spacing: 12) {
@@ -79,6 +106,11 @@ struct ContentView: View {
                 .labelsHidden()
                 .frame(width: 150)
                 .disabled(document.busy)
+                if document.detailCell > 0 {
+                    Text(String(format: "detail %.3gmm", document.detailCell))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.tint)
+                }
                 Text(document.status)
                     .font(.caption).foregroundStyle(.secondary)
             }

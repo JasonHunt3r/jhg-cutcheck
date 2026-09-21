@@ -81,8 +81,15 @@ final class Renderer: NSObject, MTKViewDelegate {
         depthState = dev.makeDepthStencilState(descriptor: dd)
     }
 
-    /// Called when a different file is loaded: rebuild the texture and indices.
-    func configure(field: HeightField) {
+    /// Fires once the camera has been still for a few frames, with the
+    /// centre and half-width of what is on screen, in millimetres.
+    var onCameraSettled: ((Double, Double, Double) -> Void)?
+    private var settleCounter = 0
+    private var lastCam = SIMD3<Float>(0, 0, 0)
+
+    /// Called when the field changes: rebuild the texture.
+    /// `resetCamera` is false for detail patches, which must not move the view.
+    func configure(field: HeightField, resetCamera: Bool = true) {
         grid = (field.nx, field.ny)
         bounds = (Float(field.xmin), Float(field.ymin), Float(field.resolution),
                   Float(field.top), Float(field.bottom))
@@ -94,11 +101,12 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         vertexCount = max(0, (field.nx - 1) * (field.ny - 1) * 6)
 
-        // Frame the part.
-        let w = Float(field.xmax - field.xmin), d = Float(field.ymax - field.ymin)
-        target = SIMD3(Float(field.xmin) + w / 2, Float(field.ymin) + d / 2,
-                       Float(field.bottom) / 2)
-        distance = max(w, d) * 1.5
+        if resetCamera {
+            let w = Float(field.xmax - field.xmin), d = Float(field.ymax - field.ymin)
+            target = SIMD3(Float(field.xmin) + w / 2, Float(field.ymin) + d / 2,
+                           Float(field.bottom) / 2)
+            distance = max(w, d) * 1.5
+        }
         upload(field: field)
     }
 
@@ -123,6 +131,23 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         let size = view.drawableSize
         let aspect = Float(max(size.width, 1) / max(size.height, 1))
+
+        // Ask for a finer patch once the camera holds still.
+        let cam = SIMD3(azimuth, elevation, distance) + target
+        if simd_length(cam - lastCam) > 0.01 {
+            lastCam = cam
+            settleCounter = 0
+        } else if settleCounter >= 0 {
+            settleCounter += 1
+            if settleCounter == 12 {   // ~0.2s at 60fps
+                settleCounter = -1
+                let halfWidth = Double(self.distance) * Double(tan(Float.pi / 8)) * 1.1
+                let tx = Double(target.x), ty = Double(target.y)
+                DispatchQueue.main.async { [weak self] in
+                    self?.onCameraSettled?(tx, ty, halfWidth)
+                }
+            }
+        }
 
         let eye = target + SIMD3(distance * cos(elevation) * cos(azimuth),
                                  distance * cos(elevation) * sin(azimuth),
