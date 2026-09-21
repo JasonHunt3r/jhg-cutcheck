@@ -10,39 +10,69 @@ struct SectionSidebar: View {
     @Bindable var document: CutDocument
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 1) {
-                    ForEach(document.landmarks) { lm in
-                        let isCurrent = document.currentSectionName == lm.name
-                        Button {
-                            document.seek(to: lm.firstMove)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Rectangle()
-                                    .fill(isCurrent ? Color.accentColor : .clear)
-                                    .frame(width: 2)
-                                Text(lm.name)
-                                    .font(.system(size: 11))
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.leading)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.vertical, 3)
-                            .padding(.trailing, 6)
-                            .background(isCurrent ? Color.accentColor.opacity(0.18) : .clear)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help("move \(lm.firstMove)")
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(document.landmarks) { lm in
+                    SectionRow(
+                        name: lm.name,
+                        move: lm.firstMove,
+                        isCurrent: document.currentSectionName == lm.name
+                    ) {
+                        document.seek(to: lm.firstMove)
                     }
                 }
-                .padding(.vertical, 4)
             }
         }
         .background(.ultraThinMaterial)
     }
 }
+
+/// A row that reads as a control rather than a line of prose: a rule beneath
+/// it, a hover state, and the move it jumps to sitting on the right.
+private struct SectionRow: View {
+    let name: String
+    let move: Int
+    let isCurrent: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    private var background: Color {
+        if isCurrent { return Color.accentColor.opacity(0.22) }
+        return hovering ? Color.primary.opacity(0.07) : .clear
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 0) {
+                HStack(spacing: 7) {
+                    Rectangle()
+                        .fill(isCurrent ? Color.accentColor : .clear)
+                        .frame(width: 2)
+                    Text(name)
+                        .font(.system(size: 11))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 6)
+                    Text("\(move)")
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(isCurrent ? .secondary : .tertiary)
+                }
+                .padding(.vertical, 5)
+                .padding(.trailing, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(background)
+
+                Divider().opacity(0.6)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("jump to move \(move)")
+    }
+}
+
 
 // MARK: - right column, upper
 
