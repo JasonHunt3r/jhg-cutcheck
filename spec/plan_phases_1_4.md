@@ -1,6 +1,13 @@
 # jhg-cutcheck — Development Plan, Phases 1–4
 
-**Version:** 0.3 (draft)
+> **HISTORICAL — do not plan from this document.**
+> The order was reversed: visualiser first, verification later. The live
+> plan is `spec/plan.md`. This file is kept because the verification design
+> below (severity model, finding codes, report and manifest schemas) is
+> parked rather than abandoned, and is worth returning to when rules are
+> written — informed by what the simulator actually shows.
+
+**Version:** 0.3 (draft, superseded)
 **Date:** 2026-09-20
 **Repo:** `github.com/JasonHunt3r/jhg-cutcheck` (public)
 **Local:** `/Users/jasonhunter/Projects/jhg-cutcheck`

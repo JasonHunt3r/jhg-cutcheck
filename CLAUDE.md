@@ -118,22 +118,29 @@ copy-paste.
 
 ## Current state
 
-Phase 0 complete: repo created, structure pushed, Xcode installed.
-Phase 1 (spec) is next. **No code has been written yet, by design.**
+**The viewer works.** `CutSim.app` reads an NC file, simulates the cut and
+draws the result: orbit, zoom, scrub, section landmarks, playback, and
+detail-on-demand down to 0.01mm on the region you are looking at. The Swift
+core matches the Python prototype exactly on all 11 archived Panel C files.
 
-Full plan: `spec/plan_phases_1_4.md` (v0.3). That document is the reference for
-what each phase delivers and what gate it must pass. Read it before proposing
+It has already earned its keep: the March 2026 Panel C defect — a 400mm
+traverse at full depth, invisible in the overlay — is obvious on sight.
+
+Windowing is next. See `spec/plan.md`.
+
+Full plan: **`spec/plan.md`**. That document is the reference for what is
+built, what is next, and what gate it must pass. Read it before proposing
 work.
+
+`spec/plan_phases_1_4.md` (v0.3) is historical: it describes the
+verification design, which is parked. Do not plan from it.
 
 Short version:
 
-1. **Phase 1 — spec.** Four schemas: job manifest, report, machine profile,
-   folder layout. Nothing is built until the formats are settled.
-2. **Phase 2 — Python prototype** in `prototype/`. GRBL parser, swept-volume
-   engine, checks, report writer, **STL export**.
-3. **Phase 3 — Swift CLI** in `sim/`. Port with the Python as oracle. Shared
-   library plus thin CLI, so a later viewer links the same code.
-4. **Phase 4 — watcher and git automation.** Runs without hands.
+The order was reversed early on, deliberately: **visualiser first,
+verification later.** Rules only catch what someone thought to write a rule
+for, and the defects that actually bit this project were ones nobody
+anticipated. The simulator surfaces those.
 
 A native 3D viewer, OpenSCAD/SCAD integration, the SwiftUI app, extra dialects
 and extra machines are deferred past Phase 4 — **deferred in time, not in
@@ -216,7 +223,7 @@ differently next time.
 - **State the plan and confirm understanding before writing code.** Jason will
   correct direction directly; do not extend discussion once corrected.
 - **No scope creep.** If a task is not in the current phase of
-  `spec/plan_phases_1_4.md`, raise it rather than building it.
+  `spec/plan.md`, raise it rather than building it.
 
 ## Environment
 
