@@ -12,6 +12,15 @@ final class OrbitMTKView: MTKView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// Act on the click that activates the window, rather than swallowing it.
+    ///
+    /// By default macOS eats the first click into an inactive window: it
+    /// raises the window and stops there. With a panel focused, a click-drag
+    /// on the viewport then only activated the main window and the drag did
+    /// nothing. Returning true makes that first click do both — focus and
+    /// rotate — so no second click is needed.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.makeFirstResponder(self)
