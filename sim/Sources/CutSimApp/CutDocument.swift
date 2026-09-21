@@ -338,6 +338,16 @@ final class CutDocument {
         detailCell = 0
     }
 
+    /// Shown under the window title. The containing folder, because the
+    /// archive has several NC files sharing a basename in different
+    /// directories and that is the thing worth telling apart at a glance.
+    var windowSubtitle: String {
+        guard let url else { return "" }
+        let folder = url.deletingLastPathComponent().lastPathComponent
+        guard !folder.isEmpty else { return "" }
+        return "\(folder) — \(moveCount) moves"
+    }
+
     var currentSectionName: String {
         guard currentMove < program.moves.count,
               let s = program.moves[currentMove].section,
