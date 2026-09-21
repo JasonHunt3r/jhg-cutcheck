@@ -30,6 +30,7 @@ final class CutDocument {
     private(set) var status = "No file open"
     private(set) var busy = false
     var wireframe = false
+    var pathOptions = PathOptions()
 
     var moveCount: Int { program.moves.count }
     var currentMove: Int = 0

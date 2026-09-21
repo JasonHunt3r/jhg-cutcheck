@@ -98,4 +98,71 @@ vertex VOut baseVertex(uint vid [[vertex_id]],
     o.color = float3(0.10, 0.10, 0.13);
     return o;
 }
+
+// ---------------------------------------------------------------- toolpath
+
+struct PathVertex {
+    packed_float3 p;
+    uint category;     // 0 travel above, 1 travel at depth, 2 cut, 3 arc, 4 plunge
+    uint moveIndex;
+    uint section;
+};
+
+struct PathUniforms {
+    float4x4 mvp;
+    uint  maxMove;      // hide anything the tool has not reached yet
+    uint  mask;         // one bit per category
+    uint  colorMode;    // 0 by category, 1 by section
+    uint  sectionCount;
+    float pointSize;
+};
+
+struct PVOut {
+    float4 position [[position]];
+    float3 color;
+    float  size [[point_size]];
+};
+
+static float3 hue(float h) {
+    float3 k = fract(float3(h) + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0;
+    return clamp(abs(k) - 1.0, 0.0, 1.0);
+}
+
+vertex PVOut pathVertex(uint vid [[vertex_id]],
+                        const device PathVertex *verts [[buffer(0)]],
+                        constant PathUniforms &u [[buffer(1)]])
+{
+    PathVertex v = verts[vid];
+    PVOut o;
+    o.size = u.pointSize;
+
+    bool hidden = (v.moveIndex > u.maxMove) || ((u.mask & (1u << v.category)) == 0u);
+    if (hidden) {
+        // Behind the near plane, so it is clipped rather than drawn.
+        o.position = float4(0.0, 0.0, -1.0, 1.0);
+        o.color = float3(0.0);
+        return o;
+    }
+
+    float3 c;
+    if (u.colorMode == 1u && v.category != 0u && v.category != 1u) {
+        c = mix(float3(0.35), hue(fract(float(v.section) * 0.61803399)), 0.85);
+    } else {
+        switch (v.category) {
+            case 0u: c = float3(0.35, 0.48, 0.70); break;   // travel, clear of stock
+            case 1u: c = float3(1.00, 0.25, 0.20); break;   // travel at depth
+            case 2u: c = float3(0.55, 0.95, 0.60); break;   // cutting
+            case 3u: c = float3(0.35, 0.85, 0.90); break;   // cutting, arc
+            default: c = float3(1.00, 0.70, 0.15); break;   // plunge
+        }
+    }
+
+    o.position = u.mvp * float4(float3(v.p), 1.0);
+    o.color = c;
+    return o;
+}
+
+fragment float4 pathFragment(PVOut in [[stage_in]]) {
+    return float4(in.color, 1.0);
+}
 """#

@@ -3,6 +3,46 @@ import MetalKit
 import simd
 import CutSimCore
 
+/// One point on the toolpath. Layout matches `PathVertex` in the shader.
+struct PathVertex {
+    var x: Float, y: Float, z: Float
+    var category: UInt32      // 0 travel above, 1 travel at depth, 2 cut, 3 arc, 4 plunge
+    var moveIndex: UInt32
+    var section: UInt32
+}
+
+struct PathUniforms {
+    var mvp: simd_float4x4
+    var maxMove: UInt32
+    var mask: UInt32
+    var colorMode: UInt32
+    var sectionCount: UInt32
+    var pointSize: Float
+}
+
+/// Which parts of the path to draw.
+struct PathOptions: Equatable {
+    var travelAbove = false
+    var travelAtDepth = true
+    var cuts = false
+    var plunges = true
+    var colorBySection = false
+    var followScrub = true
+
+    var isEmpty: Bool { !(travelAbove || travelAtDepth || cuts || plunges) }
+
+    /// Arcs share the `cuts` toggle; they are coloured differently, not
+    /// switched separately.
+    var mask: UInt32 {
+        var m: UInt32 = 0
+        if travelAbove   { m |= 1 << 0 }
+        if travelAtDepth { m |= 1 << 1 }
+        if cuts          { m |= (1 << 2) | (1 << 3) }
+        if plunges       { m |= 1 << 4 }
+        return m
+    }
+}
+
 struct Uniforms {
     var mvp: simd_float4x4
     var xmin: Float
@@ -36,6 +76,17 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
     private var base: Layer?
     private var patch: Layer?
+
+    private var pathPipeline: MTLRenderPipelineState!
+    private var pointPipeline: MTLRenderPipelineState!
+    private var lineBuffer: MTLBuffer?
+    private var lineCount = 0
+    private var plungeBuffer: MTLBuffer?
+    private var plungeCount = 0
+    private var sectionCount: UInt32 = 1
+
+    var pathOptions = PathOptions()
+    var currentMove: Int = 0
 
     // Camera
     var azimuth: Float = -0.6
@@ -78,9 +129,12 @@ final class Renderer: NSObject, MTKViewDelegate {
             return try? dev.makeRenderPipelineState(descriptor: d)
         }
         guard let sp = pipeline("surfaceVertex", "surfaceFragment"),
-              let bp = pipeline("baseVertex", "surfaceFragment") else { return nil }
+              let bp = pipeline("baseVertex", "surfaceFragment"),
+              let pp = pipeline("pathVertex", "pathFragment") else { return nil }
         surfacePipeline = sp
         basePipeline = bp
+        pathPipeline = pp
+        pointPipeline = pp
 
         let dd = MTLDepthStencilDescriptor()
         dd.depthCompareFunction = .less
@@ -127,6 +181,60 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard var b = base, field.nx == b.nx, field.ny == b.ny else { return }
         write(field, into: &b)
         base = b
+    }
+
+    /// Build the toolpath geometry once per file.
+    ///
+    /// Line segments rather than strips: a strip would need restarts between
+    /// moves, and pairs keep the buffer trivial to build and index-free.
+    /// Visibility is decided in the shader from `moveIndex`, so scrubbing
+    /// never rebuilds this.
+    func setPath(program: Program, surfaceTop: Double) {
+        var lines: [PathVertex] = []
+        var plunges: [PathVertex] = []
+        lines.reserveCapacity(program.moves.count * 2)
+        sectionCount = UInt32(max(program.sections.count, 1))
+
+        for (i, m) in program.moves.enumerated() {
+            let section = UInt32(m.section ?? 0)
+            let idx = UInt32(i)
+
+            // A vertical move below the surface is a plunge: mark its point.
+            if m.xyLength < 1e-6, m.dz < -1e-6, m.end.z < surfaceTop {
+                plunges.append(PathVertex(x: Float(m.end.x), y: Float(m.end.y),
+                                          z: Float(m.end.z), category: 4,
+                                          moveIndex: idx, section: section))
+                continue
+            }
+
+            let category: UInt32
+            if m.isRapid {
+                category = m.minZ < surfaceTop ? 1 : 0    // at depth, or clear
+            } else {
+                category = m.isArc ? 3 : 2
+            }
+
+            // 0.1mm sag is plenty for a line you are looking at, and keeps
+            // the buffer small on arc-heavy files.
+            let pts = m.isArc ? m.polyline(maxSag: 0.1) : [m.start, m.end]
+            for k in 0..<(pts.count - 1) {
+                for p in [pts[k], pts[k + 1]] {
+                    lines.append(PathVertex(x: Float(p.x), y: Float(p.y), z: Float(p.z),
+                                            category: category, moveIndex: idx,
+                                            section: section))
+                }
+            }
+        }
+
+        lineCount = lines.count
+        lineBuffer = lines.isEmpty ? nil : device.makeBuffer(
+            bytes: lines, length: lines.count * MemoryLayout<PathVertex>.stride,
+            options: .storageModeShared)
+
+        plungeCount = plunges.count
+        plungeBuffer = plunges.isEmpty ? nil : device.makeBuffer(
+            bytes: plunges, length: plunges.count * MemoryLayout<PathVertex>.stride,
+            options: .storageModeShared)
     }
 
     /// The fine patch drawn over the base. Passing nil clears it.
@@ -218,6 +326,35 @@ final class Renderer: NSObject, MTKViewDelegate {
             enc.setVertexBytes(&patchU, length: MemoryLayout<Uniforms>.stride, index: 0)
             enc.setVertexTexture(patch.texture, index: 0)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: patch.vertexCount)
+            enc.setDepthBias(0, slopeScale: 0, clamp: 0)
+        }
+
+        // Toolpath over the material. Depth-tested so it is occluded by the
+        // part, but biased forward so a line lying on the surface it cut is
+        // not lost to z-fighting.
+        if !pathOptions.isEmpty {
+            var pu = PathUniforms(
+                mvp: mvp,
+                maxMove: UInt32(pathOptions.followScrub ? currentMove : Int.max >> 1),
+                mask: pathOptions.mask,
+                colorMode: pathOptions.colorBySection ? 1 : 0,
+                sectionCount: sectionCount,
+                pointSize: 7)
+            enc.setDepthBias(-8.0, slopeScale: -2.0, clamp: -0.05)
+            enc.setTriangleFillMode(.fill)
+
+            if let lb = lineBuffer, lineCount > 0 {
+                enc.setRenderPipelineState(pathPipeline)
+                enc.setVertexBuffer(lb, offset: 0, index: 0)
+                enc.setVertexBytes(&pu, length: MemoryLayout<PathUniforms>.stride, index: 1)
+                enc.drawPrimitives(type: .line, vertexStart: 0, vertexCount: lineCount)
+            }
+            if let pb = plungeBuffer, plungeCount > 0, pathOptions.plunges {
+                enc.setRenderPipelineState(pointPipeline)
+                enc.setVertexBuffer(pb, offset: 0, index: 0)
+                enc.setVertexBytes(&pu, length: MemoryLayout<PathUniforms>.stride, index: 1)
+                enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: plungeCount)
+            }
             enc.setDepthBias(0, slopeScale: 0, clamp: 0)
         }
 

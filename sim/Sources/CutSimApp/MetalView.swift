@@ -89,6 +89,7 @@ struct CutView: NSViewRepresentable {
         var patchFor: ObjectIdentifier?
         var lastGeneration: UInt64 = .max
         var lastResetRequest = 0
+        var pathFor: ObjectIdentifier?
     }
 
     func makeNSView(context: Context) -> OrbitMTKView {
@@ -154,6 +155,14 @@ struct CutView: NSViewRepresentable {
             r.setPatch(document.detailField)
             c.patchFor = patchID
         }
+
+        // The path geometry depends only on the file, so it is built once.
+        if c.pathFor != ObjectIdentifier(field) {
+            r.setPath(program: document.program, surfaceTop: field.top)
+            c.pathFor = ObjectIdentifier(field)
+        }
+        r.pathOptions = document.pathOptions
+        r.currentMove = document.currentMove
 
         if c.lastResetRequest != document.resetViewRequest {
             c.lastResetRequest = document.resetViewRequest

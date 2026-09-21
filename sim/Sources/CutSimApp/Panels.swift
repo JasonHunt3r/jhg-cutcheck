@@ -115,6 +115,19 @@ struct InspectorPanel: View {
                                 .foregroundStyle(.secondary)
                         }
 
+                        InspectorGroup("Toolpath") {
+                            Toggle("Cut paths", isOn: $document.pathOptions.cuts)
+                            Toggle("Plunge points", isOn: $document.pathOptions.plunges)
+                            Toggle("Travel at depth", isOn: $document.pathOptions.travelAtDepth)
+                            Toggle("Travel above stock", isOn: $document.pathOptions.travelAbove)
+                            Divider().padding(.vertical, 2)
+                            Toggle("Colour by section", isOn: $document.pathOptions.colorBySection)
+                            Toggle("Follow scrub", isOn: $document.pathOptions.followScrub)
+                            Text("red = travelling at cutting depth")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        }
+
                         InspectorGroup("Display") {
                             Toggle("Wireframe", isOn: $document.wireframe)
                             Toggle("Move list", isOn: $document.showMoveList)
