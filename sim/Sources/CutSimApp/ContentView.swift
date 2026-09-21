@@ -28,14 +28,7 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 640, minHeight: 480)
-        // Mac convention: the title is the document, not the app. The app
-        // name is already in the menu bar. navigationDocument adds the
-        // proxy icon, so Cmd-clicking the title shows the full path --
-        // which matters here, because several NC files in this archive
-        // share a basename across directories.
-        .navigationTitle(document.url?.lastPathComponent ?? "CutSim")
-        .navigationSubtitle(document.windowSubtitle)
-        .modifier(DocumentProxy(url: document.url))
+        .windowChrome(title: document.windowTitle, url: document.url)
         .task {
             if document.field == nil,
                let path = CommandLine.arguments.dropFirst().first(where: {
@@ -49,15 +42,3 @@ struct ContentView: View {
 }
 
 
-/// Attaches the file to the window so the title bar gets a proxy icon and
-/// a path menu. Only applied once a file is open.
-private struct DocumentProxy: ViewModifier {
-    let url: URL?
-    func body(content: Content) -> some View {
-        if let url {
-            content.navigationDocument(url)
-        } else {
-            content
-        }
-    }
-}

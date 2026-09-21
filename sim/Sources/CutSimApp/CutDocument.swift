@@ -338,23 +338,13 @@ final class CutDocument {
         detailCell = 0
     }
 
-    /// Shown under the window title.
-    ///
-    /// Leads with the app name on purpose, against the usual Mac rule that
-    /// the menu bar identifies the app: when CutSim is in the background
-    /// the menu bar belongs to something else, and a bare filename does not
-    /// say whose window this is.
-    ///
-    /// Then the containing folder, because the archive has several NC files
-    /// sharing a basename across directories, and that is the thing worth
-    /// telling apart at a glance.
-    var windowSubtitle: String {
+    /// App name first, then the file. The usual Mac rule leaves the app
+    /// name to the menu bar, but that assumes the app is frontmost — when
+    /// CutSim is behind something else the menu bar belongs to another app,
+    /// and a bare filename does not say whose window this is.
+    var windowTitle: String {
         guard let url else { return Self.appName }
-        let folder = url.deletingLastPathComponent().lastPathComponent
-        var parts = [Self.appName]
-        if !folder.isEmpty { parts.append(folder) }
-        parts.append("\(moveCount) moves")
-        return parts.joined(separator: " · ")
+        return "\(Self.appName): \(url.lastPathComponent)"
     }
 
     /// One place to change when the name is settled.

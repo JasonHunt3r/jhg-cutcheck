@@ -43,6 +43,8 @@ struct MoveListView: View {
         }
         }
         .background(.ultraThinMaterial)
+        .windowChrome(title: "Moves — \(document.moveCount.formatted())",
+                      panelsOnly: true)
     }
 }
 
