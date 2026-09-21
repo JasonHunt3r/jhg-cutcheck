@@ -6,11 +6,22 @@ Standing context for Claude Code sessions in this repo. Read this first.
 
 ## What this project is
 
-**jhg-cutcheck** verifies generated G-code before it cuts material.
+**jhg-cutcheck** simulates the tool's path through the material, so the cut can
+be seen and checked before it is committed to real stock.
 
-It simulates the cut from an NC file, compares the result against the design
-intent the generator was working from, checks it against the machine's limits,
-and writes a machine-readable report that Claude Code can gate on.
+It reconstructs the cut from the NC file alone, removes virtual material with
+the tool's swept volume, and reports what the part actually becomes — plus a
+mesh so the result can be inspected by eye.
+
+It exists to take over the job CAMotics has been doing on this bench, and to add
+the checking CAMotics never did. See **Relationship to CAMotics** below.
+
+**The failure it exists to catch:** a preview overlay is a drawing of intent; an
+NC file is an instruction to a machine. Anything happening between them — arc
+fitting, path reversal, an offset applied after the overlay was drawn, a winding
+flip — is invisible in the picture. The overlay can look right while the file
+cuts something else. That has happened here. Dimensional trueness has *not* been
+the problem; preview-versus-cut divergence has.
 
 The loop it closes: ClaudeCAM generates a job → cutcheck checks it → the report
 comes back → the generator is fixed, or the file is cleared for the shop. The
@@ -18,17 +29,48 @@ two sides talk through files in this repo, not through copy-paste.
 
 ## What it is NOT
 
-- **Not a CAMotics replacement.** 3-axis, 2.5D, flat cutters, GRBL dialect only.
-  Scope creep toward a general CAM simulator is the main thing to resist.
+- **Not a general CAM simulator.** 3-axis, 2.5D, flat cutters, GRBL dialect
+  only — this bench's machine and dialect, not everyone's.
 - **Not a physics simulator.** It cannot see bit deflection, workpiece movement,
   stock that was not flat, or feeds that burn rather than cut. Those are settled
   at the machine by Jason.
 - **Not a product.** No signing, no notarization, no Apple Developer account, no
-  other users. That question is deferred until the tool earns its place on this
-  bench.
+  other users. Deferred until the tool earns its place on this bench.
 
 The honest claim is "catches the errors visible in the file," never "ensures
 the cut."
+
+---
+
+## Relationship to CAMotics
+
+CAMotics is the functional reference, not an anti-goal. The project began as
+"why don't we rebuild that in Swift," and that framing still holds.
+
+What is being carried over: **simulating the tool's path through the medium**
+and showing the result. That is the part of CAMotics actually used here, and
+the part whose loss would be felt.
+
+What is not being carried over: the breadth. Other dialects, other machine
+classes, lathes, 5-axis, the plugin surface. Narrowing scope is not the same
+as rejecting the model — cutcheck rebuilds the part that earns its keep.
+
+What CAMotics never did, and this adds: automated checking against design
+intent and machine limits, with a machine-readable report another program can
+gate on.
+
+---
+
+## The independence rule
+
+**Cutcheck reads only the shipped NC file.** Never the generator's intermediate
+arrays, never the path data the overlay was drawn from, never a parallel export
+of the same geometry.
+
+This is the basis of the tool's value, not a style preference. The bug class in
+scope is one where overlay and G-code came from different representations. A
+checker sharing a representation with either is blind to exactly the defect it
+exists to find.
 
 ---
 
@@ -41,16 +83,36 @@ Two separate repos, siblings, not nested:
 | `~/Projects/ClaudeCAM` | jhg-shop-docs | public docs library | generates G-code; holds shop standards and runbook |
 | `~/Projects/jhg-cutcheck` | jhg-cutcheck | this repo | checks G-code |
 
-They were deliberately kept separate: ClaudeCAM's origin is the public
-documentation library pulled at session start, and nesting repos invites
-submodule confusion.
+Kept separate deliberately: ClaudeCAM's origin is the public documentation
+library pulled at session start, and nesting repos invites submodule confusion.
 
 **Naming collision to watch:** ClaudeCAM has `jobs/`. This repo uses `runs/`
-for the same conceptual thing. They are not interchangeable. If a file's
-provenance is unclear, do not guess which folder it came from — check.
+for the same conceptual thing. Not interchangeable. If a file's provenance is
+unclear, check rather than guess.
 
-The shop standards in jhg-shop-docs (`jhg_gcode_hygiene`, `jhg_shop_file_standards`,
+Shop standards in jhg-shop-docs (`jhg_gcode_hygiene`, `jhg_shop_file_standards`,
 the runbook) still govern G-code conventions. This repo does not restate them.
+
+---
+
+## The repo as shared workspace
+
+The repo is not just storage. It is the shared surface three parties work on:
+
+| Party | Access | Role |
+|---|---|---|
+| Jason | the files in `~/Projects` | shop truth; inspects the simulated part by eye |
+| Claude Code | the same files, locally | generates, checks, builds |
+| App Claude | the same files, via the public repo | design review, planning, spec drafting |
+
+This is why the work lives in `~/Projects` and why it is pushed rather than
+kept local: pushing is what makes a file readable by App Claude. **A commit is
+not visible to App Claude until it is pushed.** Local-only work is invisible to
+a third of the team.
+
+Together with ClaudeCAM this forms one working set — the tools for the work in
+one place, reachable by all three parties, rather than moved between them by
+copy-paste.
 
 ---
 
@@ -59,23 +121,28 @@ the runbook) still govern G-code conventions. This repo does not restate them.
 Phase 0 complete: repo created, structure pushed, Xcode installed.
 Phase 1 (spec) is next. **No code has been written yet, by design.**
 
-Full plan: `spec/plan_phases_1_4.md`. That document is the reference for what
-each phase delivers and what gate it must pass. Read it before proposing work.
+Full plan: `spec/plan_phases_1_4.md` (v0.3). That document is the reference for
+what each phase delivers and what gate it must pass. Read it before proposing
+work.
 
 Short version:
 
 1. **Phase 1 — spec.** Four schemas: job manifest, report, machine profile,
-   folder layout. Nothing is built until the formats are settled, because they
-   are the contract between generator, checker, and design review.
-2. **Phase 2 — Python prototype** in `prototype/`. GRBL parser, heightmap
-   engine, checks, report writer. Exists to test the difficulty estimate
-   cheaply before any Swift work.
+   folder layout. Nothing is built until the formats are settled.
+2. **Phase 2 — Python prototype** in `prototype/`. GRBL parser, swept-volume
+   engine, checks, report writer, **STL export**.
 3. **Phase 3 — Swift CLI** in `sim/`. Port with the Python as oracle. Shared
    library plus thin CLI, so a later viewer links the same code.
 4. **Phase 4 — watcher and git automation.** Runs without hands.
 
-3D views, OpenSCAD/STL, the SwiftUI app, extra dialects and extra machines are
-all deferred past Phase 4.
+A native 3D viewer, OpenSCAD/SCAD integration, the SwiftUI app, extra dialects
+and extra machines are deferred past Phase 4 — **deferred in time, not in
+rank.** The viewer is a primary deliverable, not polish: it is what replaces
+what CAMotics showed, and it is the surface Jason uses to talk to Claude about
+a cut. It is sequenced late only because the checker is falsifiable sooner.
+
+Deferring the *viewer* does not defer *inspection* — Phase 2's mesh opens in
+any existing 3D viewer.
 
 ---
 
@@ -84,62 +151,68 @@ all deferred past Phase 4.
 ```
 spec/        schemas and the phase plan
 profiles/    machine profiles, one JSON per machine (TTC450 PRO first)
-fixtures/    ground-truth jobs: NC + SVG + parameters + caliper measurements
+fixtures/    ground-truth file pairs: NC + overlay SVG + design SVG + parameters
 prototype/   Python simulation core
 sim/         Swift package (Phase 3+)
 runs/        live run folders, one per run id
 ```
 
 Committed: NC, manifest, report, overlay SVG.
-Not committed: heightmaps and other regenerable intermediates, STL files
-(OpenSCAD regenerates those from `.scad` source).
+Not committed: heightmaps, exported STLs, and other regenerable intermediates.
 
 ---
 
 ## How the core works
 
-Stock is a grid of Z heights. Each move lowers every cell the cutter footprint
-passes over. That is the whole engine, and it is machine-agnostic — geometry is
-geometry regardless of whose gantry it is.
+1. Parse the shipped NC file into a tool center path.
+2. Sweep the tool along it — **not radius alone**: the cutter is a cylinder with
+   a Z extent. Radius handles XY, depth of cut handles Z. Step-downs, tabs and
+   plunges live in Z, and a radius-only model would draw a convincing outline
+   while missing a plunge through the spoilboard.
+3. Remove material: stock is a grid of Z heights; each move lowers every cell
+   the swept volume passes over.
+4. Compare simulated stock against design intent (gouge vs uncut) and against
+   the overlay SVG (did the picture lie).
+5. Emit the report and an STL of the result.
 
-Machine-specific facts live in `profiles/*.json` as data: travel envelope, max
-feeds, spindle RPM range, units. Adding a machine means adding a file, never
-editing the simulator. If a machine fact is about to be hardcoded, that is a bug.
+Machine facts live in `profiles/*.json` as data: travel envelope, max feeds,
+spindle RPM range, units. Adding a machine means adding a file, never editing
+the simulator. If a machine fact is about to be hardcoded, that is a bug.
 
 ---
 
 ## Severity model
 
-Every finding carries one level. This is the contract that makes the loop
-automatic.
-
 | Level | Meaning | Claude Code behavior |
 |---|---|---|
-| **fatal** | Damages part or machine: outside travel envelope, cut into keep-out, plunge deeper than stock, gouge into the finished boundary | **Block.** Do not present the file. |
-| **warning** | Out of spec but survivable: feed or RPM outside profile, deviation past the red band | Surface to Jason, do not block |
+| **fatal** | Damages part or machine, or the part is not what was designed: gouge into the finished boundary, uncut material where the design says removed, outside travel envelope, plunge deeper than stock, cut into keep-out | **Block.** Do not present the file. |
+| **warning** | Survivable, or the documentation lied but the part is right: overlay disagrees with the simulated result while design intent is still met, feed or RPM outside profile, deviation past the red band | Surface to Jason, do not block |
 | **note** | Informational: run time, pass count, cut length | Log only |
 
 A run passes with zero fatals. Deviation bands follow existing JHG convention:
 green <0.1mm, yellow 0.1–0.2, orange 0.2–0.3, red >0.3.
+
+Overlay disagreement is a warning rather than a fatal: if the simulated part
+matches the design, the file is safe to cut even though the picture was wrong.
+It must always be reported — a lying overlay is a generator bug that will bite
+differently next time.
 
 ---
 
 ## Working rules
 
 - **Physical shop observation overrules simulation.** If this tool and the part
-  in Jason's hand disagree, the part is right and the tool has a bug. Never
-  argue the reverse.
+  in Jason's hand disagree, the part is right and the tool has a bug.
 - **A verifier that has never fired is not a verifier.** Every check needs a
   fixture that makes it fire. Passing a file that was already good proves
   nothing.
-- **Gates are pass/fail, not judgment calls.** Do not advance a phase because
-  the work looks done. Phase 2 requires all three: dimensional agreement with
-  calipers, correct firing on the known-bad fixture, and no false fatal on the
-  good one.
+- **Gates are pass/fail, not judgment calls.** Phase 2 requires all three: fires
+  on the divergence fixture, stays quiet on the clean one, and the exported STL
+  survives Jason's visual inspection.
 - **Return to source files, not conversation summaries.** Relayed claims lose
   their derivation between sessions. The NC file is the source of truth.
-- **Surgical changes.** Read the full relevant section before editing anything;
-  verify output after each individual change, not in batches.
+- **Surgical changes.** Read the full relevant section before editing; verify
+  output after each individual change, not in batches.
 - **State the plan and confirm understanding before writing code.** Jason will
   correct direction directly; do not extend discussion once corrected.
 - **No scope creep.** If a task is not in the current phase of
@@ -152,5 +225,6 @@ green <0.1mm, yellow 0.1–0.2, orange 0.2–0.3, red >0.3.
 - No browser tools.
 - Python for the prototype; existing pipeline libraries are PyClipper,
   svgpathtools, Shapely.
-- OpenSCAD, when it becomes relevant in a later phase, must be a development
-  snapshot — the 2021.01 stable release is Intel-only.
+- OpenSCAD doubles as an STL viewer via `import()` in Phase 2. When it becomes a
+  dependency in a later phase, it must be a development snapshot — the 2021.01
+  stable release is Intel-only.
