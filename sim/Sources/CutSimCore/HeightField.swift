@@ -11,7 +11,7 @@ public final class HeightField {
     public let top, bottom: Double
     public let resolution: Double
     public let nx, ny: Int
-    public private(set) var h: [Float]
+    public internal(set) var h: [Float]
 
     public init(xmin: Double, xmax: Double, ymin: Double, ymax: Double,
                 top: Double, bottom: Double, resolution: Double) {
@@ -131,5 +131,13 @@ public enum Simulator {
             }
         }
         return segs
+    }
+}
+
+public extension HeightField {
+    /// Restore a previously captured grid. Used to rewind for scrubbing.
+    func replace(heights: [Float]) {
+        precondition(heights.count == h.count, "grid size mismatch")
+        h = heights
     }
 }

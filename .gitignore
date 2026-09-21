@@ -5,3 +5,4 @@ __pycache__/
 DerivedData/
 *.stl
 sim/.build/
+sim/build/

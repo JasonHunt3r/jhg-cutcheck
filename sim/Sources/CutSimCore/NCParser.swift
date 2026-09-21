@@ -19,6 +19,8 @@ public struct Section: Sendable {
 }
 
 public struct Program: Sendable {
+    public init() {}
+
     public var moves: [Move] = []
     public var sections: [Section] = []
     public var warnings: [ParseWarning] = []
