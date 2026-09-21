@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 @main
 struct CutSimApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var document = CutDocument()
     @State private var panels = PanelManager()
 
