@@ -156,6 +156,36 @@ it. The panels stay on top regardless, by level.
 Wire it with `@NSApplicationDelegateAdaptor(AppDelegate.self)`. Mark the
 class `@MainActor` or Swift 6 rejects the `NSWindow` calls as non-Sendable.
 
+## 5a. Undo in a panel: registering isn't enough, routing matters too
+
+Found building ShowTools' Info panel (a second app using this guide).
+`\.undoManager` in a panel's SwiftUI content isn't the presenting window's —
+covered already, in effect, by "reach the `NSWindow` instead" elsewhere in this
+doc. Pass the real one in explicitly rather than reading it from the panel's
+own environment.
+
+That fixes *registering* the undo step on the right `UndoManager`. It does not
+fix *undoing* it. AppKit vends **every window its own `UndoManager`** unless
+told otherwise, and ⌘Z (or Edit ▸ Undo) asks whichever window is **key** for
+its manager — not the one the step happened to be registered on. A panel is
+key right after you finish typing into it (the normal moment to press ⌘Z), so
+a correctly-registered step can go nowhere, silently, with the menu item
+still reading enabled.
+
+```swift
+final class YourPanel: NSPanel {
+    var sharedUndoManager: UndoManager?
+    override var undoManager: UndoManager? { sharedUndoManager }
+}
+// at creation:
+panel.sharedUndoManager = presentingWindowsUndoManager
+```
+
+Confirmed by hand: without the override, ⌘Z right after an edit in the panel
+did nothing; the same action through Edit ▸ Undo (or with the *document*
+window key instead) worked. Test both ways — a menu click and a real ⌘Z with
+the panel focused — because they can disagree.
+
 ## 6. `acceptsFirstMouse` for anything you drag
 
 macOS swallows the first click into an inactive window — it raises the window
@@ -290,5 +320,8 @@ let rebuilt = HeightField(…); rebuilt.replace(heights: heights)
 - [ ] `setFrameAutosaveName` before placing defaults
 - [ ] raise document windows on `applicationDidBecomeActive`
 - [ ] `acceptsFirstMouse` on drag surfaces only
+- [ ] a panel with undoable edits overrides `undoManager` to return the
+      presenting window's, and ⌘Z was tried with the *panel* key, not just
+      the menu item
 - [ ] no conditionally-inserted rows in live panels
 - [ ] shortcuts checked against ⌥⌘M and the ⌘-digit range
